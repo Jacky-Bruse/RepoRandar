@@ -7,5 +7,4 @@ crons = ["*/15 * * * *"]
 
 [[kv_namespaces]]
 binding = "REPO_RADAR"
-id = "replace-with-production-kv-id"
-preview_id = "replace-with-preview-kv-id"
+id = "de6a13eba6e04a978bd7ef9ad15863a9"
