@@ -1,6 +1,6 @@
 name = "reporadar"
 main = "src/index.ts"
-compatibility_date = "2026-07-03"
+compatibility_date = "2026-06-01"
 
 [triggers]
 crons = ["*/15 * * * *"]
