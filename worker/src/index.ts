@@ -98,8 +98,13 @@ export async function handleFetch(request: Request, env: Env): Promise<Response>
     return json({ ok: true });
   }
 
-  const reply = await applyTelegramCommand(text, env.REPO_RADAR);
-  await sendTelegram(env, reply, chatId);
+  try {
+    const reply = await applyTelegramCommand(text, env.REPO_RADAR);
+    await sendTelegram(env, reply, chatId);
+  } catch (error) {
+    // 必须回 200：非 200 会让 Telegram 无限重试同一条更新，堵死后续所有命令
+    console.warn("telegram command failed", error);
+  }
   return json({ ok: true });
 }
 
@@ -172,7 +177,11 @@ export async function applyTelegramCommand(text: string, kv: KV): Promise<string
   if (command === "/add") {
     if (!repo || !repo.includes("/")) return "用法: /add owner/repo commit|release|commit + release";
     const watch = rest.join(" ") || "commit";
-    parseWatch(watch);
+    try {
+      parseWatch(watch);
+    } catch {
+      return "监控类型无效，请用: commit | release | commit + release";
+    }
     config.repos[repo] = watch;
     await writeJson(kv, "config", config);
     return `已添加 ${repo}: ${watch}`;
@@ -481,10 +490,10 @@ function richPayload(chatId: string, markdown: string) {
 }
 
 function parseWatch(value: string): Watch[] {
-  const normalized = String(value).trim().replace(/\s+/g, " ");
+  const normalized = String(value).trim().replace(/\s*\+\s*/g, " + ").replace(/\s+/g, " ");
   if (normalized === "commit") return ["commit"];
   if (normalized === "release") return ["release"];
-  if (normalized === "commit + release") return ["commit", "release"];
+  if (normalized === "commit + release" || normalized === "release + commit") return ["commit", "release"];
   throw new Error(`invalid watch value: ${value}`);
 }
 

@@ -48,6 +48,40 @@ test("telegram commands update KV config", async () => {
   assert.deepEqual((await kv.get("config", "json")).repos, {});
 });
 
+test("/add accepts commit+release without spaces", async () => {
+  const kv = new MemoryKV({ config: { digest: "auto", repos: {} } });
+  const reply = await applyTelegramCommand("/add owner/repo commit+release", kv);
+  assert.equal(reply, "已添加 owner/repo: commit+release");
+  assert.deepEqual(parseRepos((await kv.get("config", "json")).repos)["owner/repo"].watch, ["commit", "release"]);
+});
+
+test("invalid /add watch returns usage without throwing or corrupting config", async () => {
+  const kv = new MemoryKV({ config: { digest: "auto", repos: {} } });
+  const reply = await applyTelegramCommand("/add owner/repo bogus", kv);
+  assert.match(reply, /无效/);
+  assert.deepEqual((await kv.get("config", "json")).repos, {});
+});
+
+test("telegram webhook returns 200 even when reply send fails", async () => {
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("network down");
+  };
+  try {
+    const response = await handleFetch(
+      new Request("https://worker.test/telegram", {
+        method: "POST",
+        headers: { "X-Telegram-Bot-Api-Secret-Token": "s3cr3t" },
+        body: JSON.stringify({ message: { text: "/status", chat: { id: "1" } } }),
+      }),
+      { REPO_RADAR: new MemoryKV({ config: { repos: {} } }), TG_BOT_TOKEN: "token", TG_CHAT_ID: "chat", TELEGRAM_SECRET: "s3cr3t" },
+    );
+    assert.equal(response.status, 200);
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
 test("commit cold start advances state without events", async () => {
   const result = await checkCommit(
     github({
