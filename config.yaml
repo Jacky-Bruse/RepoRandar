@@ -1,0 +1,9 @@
+digest: auto
+
+repos:
+  vuejs/core: commit
+  rust-lang/rust: release
+  sveltejs/svelte: commit + release
+
+settings:
+  rich_messages: true

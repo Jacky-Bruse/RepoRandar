@@ -1,0 +1,15 @@
+# Telegram 机器人 Token,向 @BotFather 发送 /newbot 获取
+TG_BOT_TOKEN=""
+
+# 接收通知的 Chat ID,向 @userinfobot 发送任意消息获取
+TG_CHAT_ID=""
+
+# Webhook 校验密钥,自己编一串随机字母数字,部署后绑定 Webhook 时还要用
+TELEGRAM_SECRET=""
+
+# 管理员 Chat ID,填与 TG_CHAT_ID 相同的值,防止陌生人操控机器人
+ADMIN_CHAT_ID=""
+
+# GitHub 访问令牌,在 github.com/settings/tokens 生成 classic token,无需勾选任何权限
+# 可留空,但不填容易触发 GitHub 访问频率限制
+GITHUB_TOKEN=""

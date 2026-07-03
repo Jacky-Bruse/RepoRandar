@@ -1,0 +1,11 @@
+name = "reporadar"
+main = "src/index.ts"
+compatibility_date = "2026-07-03"
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[kv_namespaces]]
+binding = "REPO_RADAR"
+id = "replace-with-production-kv-id"
+preview_id = "replace-with-preview-kv-id"
