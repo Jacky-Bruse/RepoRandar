@@ -99,7 +99,7 @@ export async function handleFetch(request: Request, env: Env): Promise<Response>
   }
 
   try {
-    const reply = await applyTelegramCommand(text, env.REPO_RADAR);
+    const reply = await applyTelegramCommand(text, env.REPO_RADAR, new GitHubClient(env));
     await sendTelegram(env, reply, chatId);
   } catch (error) {
     // 必须回 200：非 200 会让 Telegram 无限重试同一条更新，堵死后续所有命令
@@ -169,7 +169,7 @@ export function parseRepos(rawRepos: Config["repos"] = {}): Record<string, RepoC
   return parsed;
 }
 
-export async function applyTelegramCommand(text: string, kv: KV): Promise<string> {
+export async function applyTelegramCommand(text: string, kv: KV, github?: GitHub): Promise<string | Message> {
   const config = await readJson<Config>(kv, "config", defaultConfig());
   config.repos ??= {};
 
@@ -203,9 +203,71 @@ export async function applyTelegramCommand(text: string, kv: KV): Promise<string
     return "已恢复监控";
   }
   if (command === "/status") {
-    return `RepoRadar: ${config.paused ? "暂停" : "运行中"}, ${Object.keys(config.repos).length} 个仓库`;
+    if (!github) return `RepoRadar: ${config.paused ? "暂停" : "运行中"}, ${Object.keys(config.repos).length} 个仓库`;
+    return buildStatus(config, github);
   }
   return "支持命令: /add /remove /pause /resume /status";
+}
+
+export async function buildStatus(config: Config, github: GitHub): Promise<string | Message> {
+  const repos = parseRepos(config.repos ?? {});
+  const entries = Object.entries(repos);
+  if (!entries.length) return "还没有关注任何仓库，用 /add owner/repo 添加";
+
+  const rows = await Promise.all(
+    entries.map(async ([repo, repoConfig]) => {
+      const updates: string[] = [];
+      const htmlLines: string[] = [];
+      for (const watch of repoConfig.watch) {
+        try {
+          if (watch === "commit") {
+            const head = await github.latestCommit(repo, repoConfig.branch);
+            updates.push(head?.date ? formatDate(head.date) : "无提交");
+            htmlLines.push(`   🔀 commit · 最近更新 ${head?.date ? statusTime(head.date) : "无提交"}`);
+          } else {
+            const latest = await github.latestRelease(repo);
+            if (latest?.tag_name) {
+              updates.push(`${latest.tag_name} · ${formatDate(latest.published_at)}`);
+              htmlLines.push(`   🚀 release ${escapeHtml(latest.tag_name)} · ${statusTime(latest.published_at)}`);
+            } else {
+              updates.push("暂无发布");
+              htmlLines.push("   🚀 release · 暂无发布");
+            }
+          }
+        } catch {
+          updates.push("⚠ 查询失败");
+          htmlLines.push(`   ⚠ ${watch} 查询失败`);
+        }
+      }
+      return { repo, watch: repoConfig.watch.join(" + "), update: updates.join(" / "), htmlLines };
+    }),
+  );
+
+  const header = `📡 RepoRadar · ${config.paused ? "暂停" : "运行中"} · ${entries.length} 个仓库`;
+  const table = ["| 仓库 | 关注 | 最近更新 |", "|---|---|---|", ...rows.map((row) => `| ${mdEscape(row.repo)} | ${row.watch} | ${mdEscape(row.update)} |`)];
+  const html = rows.map((row) => [`📦 <b>${escapeHtml(row.repo)}</b>`, ...row.htmlLines].join("\n"));
+  return {
+    kind: "rich",
+    repos: entries.map(([repo]) => repo),
+    richText: [header, "", ...table].join("\n"),
+    text: [escapeHtml(header), "", html.join("\n\n")].join("\n"),
+  };
+}
+
+function formatDate(value?: string): string {
+  if (!value) return "未知";
+  const date = new Date(value);
+  const monthDay = `${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+  return date.getUTCFullYear() === new Date().getUTCFullYear() ? monthDay : `${date.getUTCFullYear()}-${monthDay}`;
+}
+
+function statusTime(value?: string): string {
+  const unix = toUnix(value);
+  return unix ? `<tg-time unix="${unix}" format="r">${formatDate(value)}</tg-time>` : "未知";
+}
+
+function mdEscape(value: string): string {
+  return value.replace(/([\\|])/g, "\\$1");
 }
 
 export async function checkCommit(

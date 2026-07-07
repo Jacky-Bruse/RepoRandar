@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   applyTelegramCommand,
   buildMessages,
+  buildStatus,
   checkCommit,
   checkRelease,
   GitHubClient,
@@ -348,6 +349,62 @@ test("sendTelegram falls back to html when rich fetch throws", async () => {
   assert.match(calls[0].url, /sendRichMessage$/);
   assert.match(calls[1].url, /sendMessage$/);
   assert.equal(calls[1].body.text, "<b>HTML</b>");
+});
+
+test("buildStatus renders rich table with html fallback", async () => {
+  const year = new Date().getUTCFullYear();
+  const config = {
+    repos: {
+      "owner/commit-repo": "commit",
+      "owner/release-repo": "release",
+      "owner/both-repo": "commit + release",
+    },
+  };
+  const fake = {
+    latestCommit: async () => ({ sha: "abc", date: `${year}-06-16T07:45:34Z` }),
+    latestRelease: async () => ({ tag_name: "v1.2.3", published_at: `${year - 1}-11-02T00:00:00Z` }),
+  };
+
+  const message = await buildStatus(config, fake);
+
+  assert.equal(message.kind, "rich");
+  assert.match(message.richText, /运行中 · 3 个仓库/);
+  assert.match(message.richText, /\| 仓库 \| 关注 \| 最近更新 \|/);
+  assert.match(message.richText, /\| owner\/commit-repo \| commit \| 06-16 \|/);
+  assert.match(message.richText, new RegExp(`\\| owner/release-repo \\| release \\| v1\\.2\\.3 · ${year - 1}-11-02 \\|`));
+  assert.match(message.richText, /\| owner\/both-repo \| commit \+ release \| 06-16 \/ v1\.2\.3 · \d{4}-11-02 \|/);
+  assert.match(message.text, /📦 <b>owner\/commit-repo<\/b>/);
+  assert.match(message.text, /<tg-time/);
+});
+
+test("buildStatus marks per-repo failures and missing releases", async () => {
+  const config = { paused: true, repos: { "owner/broken": "commit", "owner/no-release": "release" } };
+  const fake = {
+    latestCommit: async () => {
+      throw new Error("rate limited");
+    },
+    latestRelease: async () => ({ tag_name: null }),
+  };
+
+  const message = await buildStatus(config, fake);
+
+  assert.match(message.richText, /暂停 · 2 个仓库/);
+  assert.match(message.richText, /\| owner\/broken \| commit \| ⚠ 查询失败 \|/);
+  assert.match(message.richText, /\| owner\/no-release \| release \| 暂无发布 \|/);
+});
+
+test("/status without repos returns plain hint", async () => {
+  const kv = new MemoryKV({ config: { digest: "auto", repos: {} } });
+  const reply = await applyTelegramCommand("/status", kv, github({}));
+  assert.equal(typeof reply, "string");
+  assert.match(reply, /还没有关注任何仓库/);
+});
+
+test("/status returns rich status message", async () => {
+  const kv = new MemoryKV({ config: { digest: "auto", repos: { "owner/repo": "commit" } } });
+  const reply = await applyTelegramCommand("/status", kv, github({ head: { sha: "abc", date: "2026-07-03T10:00:00Z" } }));
+  assert.equal(reply.kind, "rich");
+  assert.match(reply.richText, /owner\/repo/);
 });
 
 function commit(sha, message) {
